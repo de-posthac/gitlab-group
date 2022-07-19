@@ -1,0 +1,127 @@
+#!/bin/sh
+# -------------------------------------------------------
+# A small convenience script to clone/pull complete
+# groups and subgroups, install npm packages in each
+# projects and download artifacts from each projects.
+#
+# Written by:
+#  de-posthac (https://github.com/de-posthac)
+#  https://github.com/de-posthac/gitlab-group
+#
+# MIT license
+# -------------------------------------------------------
+
+#GITLAB_TOKEN="<token>"
+#GITLAB_URL="<url>"
+ROOT=$(pwd);
+TIMESTAMP=$(date "+%Y%m%d");
+
+function doGit() {
+    cd $ROOT;
+    for SUBGROUP in $(curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" "$GITLAB_URL/api/v4/groups/$1/descendant_groups" | jq '.[].id'); do
+        for PROJECT in $(curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" "$GITLAB_URL/api/v4/groups/$SUBGROUP/projects" | jq '.[].id' ); do
+
+            PRJ_DETAILS=$(curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" "$GITLAB_URL/api/v4//projects/$PROJECT");
+            PRJ_PATH=$(echo $PRJ_DETAILS | jq -r '.namespace.full_path');
+            PRJ_NAME=$(echo $PRJ_DETAILS | jq -r '.path');
+            PRJ_REPOSIORY=$(echo $PRJ_DETAILS | jq -r '.http_url_to_repo');
+
+            if [[ ! -d $ROOT/$PRJ_PATH ]]
+            then
+                mkdir -p $ROOT/$PRJ_PATH
+            fi
+
+            if [[ ! -d $ROOT/$PRJ_PATH/$PRJ_NAME ]]
+            then
+                echo "\nCloning $PRJ_REPOSIORY"
+                git clone $PRJ_REPOSIORY $ROOT/$PRJ_PATH/$PRJ_NAME
+
+            else
+                echo "\nPulling $PRJ_REPOSIORY"
+                cd $ROOT/$PRJ_PATH/$PRJ_NAME && git pull
+
+            fi
+        done
+    done
+}
+
+function doNpm() {
+    cd $ROOT;
+    for SUBGROUP in $(curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" "$GITLAB_URL/api/v4/groups/$1/descendant_groups" | jq '.[].id'); do
+        for PROJECT in $(curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" "$GITLAB_URL/api/v4/groups/$SUBGROUP/projects" | jq '.[].id' ); do
+
+            PRJ_DETAILS=$(curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" "$GITLAB_URL/api/v4//projects/$PROJECT");
+            PRJ_PATH=$(echo $PRJ_DETAILS | jq -r '.namespace.full_path');
+            PRJ_NAME=$(echo $PRJ_DETAILS | jq -r '.path');
+            PRJ_REPOSIORY=$(echo $PRJ_DETAILS | jq -r '.http_url_to_repo');
+
+            echo "\nInstalling dependencies from $ROOT/$PRJ_PATH/$PRJ_NAME/package.json"
+            if [ -f "$ROOT/$PRJ_PATH/$PRJ_NAME/package.json" ]
+            then
+                cd $ROOT/$PRJ_PATH/$PRJ_NAME && npm install
+
+            else
+                echo "--> No package.json found for $PRJ_PATH/$PRJ_NAME"
+                continue
+            fi
+
+        done
+    done
+}
+
+function doArtifacts() {
+    cd $ROOT;
+    for SUBGROUP in $(curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" "$GITLAB_URL/api/v4/groups/$1/descendant_groups" | jq '.[].id'); do
+        for PROJECT in $(curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" "$GITLAB_URL/api/v4/groups/$SUBGROUP/projects" | jq '.[].id' ); do
+
+            PRJ_DETAILS=$(curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" "$GITLAB_URL/api/v4//projects/$PROJECT");
+            PRJ_PATH=$(echo $PRJ_DETAILS | jq -r '.namespace.full_path');
+            PRJ_NAME=$(echo $PRJ_DETAILS | jq -r '.path');
+
+            if [[ ! -d $ROOT/_artifacts/$PRJ_PATH/$PRJ_NAME/$2 ]]
+            then
+                mkdir -p $ROOT/_artifacts/$PRJ_PATH/$PRJ_NAME/$2
+            fi
+
+            if [[ -d $ROOT/_artifacts/$PRJ_PATH/$PRJ_NAME/$2 ]]
+            then
+                curl --output "$ROOT/_artifacts/$PRJ_PATH/$PRJ_NAME/$2/$TIMESTAMP-$PRJ_NAME-$2-$3.zip" -s -f -S --header "PRIVATE-TOKEN: $GITLAB_TOKEN" $GITLAB_URL/api/v4/projects/$PROJECT/jobs/artifacts/$2/download?job=$3
+                if [[ ! -f $ROOT/_artifacts/$PRJ_PATH/$PRJ_NAME/$2/$TIMESTAMP-$PRJ_NAME-$2-$3.zip ]]
+                then
+                    rm -rf $ROOT/_artifacts/$PRJ_PATH/$PRJ_NAME/$2
+                else
+                    echo "--> Artifacts downloaded to ./_artifacts/$PRJ_PATH/$PRJ_NAME/$2/$TIMESTAMP-$PRJ_NAME-$2-$3.zip"
+                fi
+            fi
+        done
+    done
+}
+
+function help(){
+    echo "Usage: $(basename $0) -[g|n|a] <group_id> [branch] [job_name]"
+    echo
+    echo " $(basename $0) -g <group_id> - Clone and pull all projects in the group"
+    echo " $(basename $0) -n <group_id> - Install dependencies for all projects in the group"
+    echo " $(basename $0) -a <group_id> [branch] [job_name] - Download artifacts for all projects in the group"
+}
+
+while getopts "h?gna:" opt; do
+    case "$opt" in
+        h|\?)   help
+                exit 0;;
+
+        g)      doGit $2
+                exit;;
+
+        n)      doNpm $2
+                exit;;
+
+        a)      doArtifacts $2 $3 $4
+                exit;;
+    esac
+done
+
+shift $((OPTIND-1))
+
+[ "${1:-}" = "--" ] && shift
+exit 0
