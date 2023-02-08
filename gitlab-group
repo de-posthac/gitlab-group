@@ -97,20 +97,49 @@ function doArtifacts() {
     done
 }
 
+function doOpenAPI() {
+    cd $ROOT;
+    for SUBGROUP in $(curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" "$GITLAB_URL/api/v4/groups/$1/descendant_groups" | jq '.[].id'); do
+        for PROJECT in $(curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" "$GITLAB_URL/api/v4/groups/$SUBGROUP/projects" | jq '.[].id' ); do
+
+            PRJ_DETAILS=$(curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" "$GITLAB_URL/api/v4//projects/$PROJECT");
+            PRJ_PATH=$(echo $PRJ_DETAILS | jq -r '.namespace.full_path');
+            PRJ_NAME=$(echo $PRJ_DETAILS | jq -r '.path');
+
+
+            if [[ ! -d $ROOT/$PRJ_PATH/_openapi ]]
+            then
+                mkdir -p $ROOT/$PRJ_PATH/_openapi
+            fi
+
+            if [[ -d $ROOT/$PRJ_PATH/$PRJ_NAME/srv ]]
+            then
+                echo "\nGenerating OpenAPI documentation for $PRJ_PATH/$PRJ_NAME/$2 in $ROOT/$PRJ_PATH/_openapi"
+                npx cds compile ./$PRJ_PATH/$PRJ_NAME/srv --service all -o $ROOT/$PRJ_PATH/_openapi --to openapi
+            fi
+
+        done
+    done
+}
+
 function help(){
-    echo "Usage: $(basename $0) -[g|n|a] <group_id> [branch] [job_name]"
+    echo "Usage: $(basename $0) -[g|n|a|o] <group_id> [branch] [job_name]"
     echo
     echo " $(basename $0) -g <group_id> - Clone and pull all projects in the group"
     echo " $(basename $0) -n <group_id> - Install dependencies for all projects in the group"
+    echo " $(basename $0) -o <group_id> - Generate OpenAPI documentation for all projects in the group"
     echo " $(basename $0) -a <group_id> [branch] [job_name] - Download artifacts for all projects in the group"
 }
 
-while getopts "h?gna:" opt; do
+while getopts "h?gnao:" opt; do
     case "$opt" in
         h|\?)   help
                 exit 0;;
 
         g)      doGit $2
+                exit;;
+
+        o)      doOpenAPI $2
                 exit;;
 
         n)      doNpm $2
