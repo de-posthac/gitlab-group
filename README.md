@@ -40,6 +40,7 @@ Options are:
 |-|-|
 |-g|will clone/pull all projects in groups and subgroups|
 |-n|will install npm packages in each projects (npm install)|
+|-o|will generate for SAP cap subprojects an openapi.json file|
 |-a \<branch\> \<job-name\> |will download artifacts from each projects (gitlab-artifact)|
 
 ## Support KDC LAB
